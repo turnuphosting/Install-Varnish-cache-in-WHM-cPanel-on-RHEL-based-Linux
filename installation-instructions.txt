@@ -1,0 +1,149 @@
+To seamlessly install Varnish cache on WHM/cPanel running on AlmaLinux 8, without risking disruptions during updates, follow these steps:
+
+Perform a complete backup.
+Install Varnish:
+
+First, add the EPEL (Extra Packages for Enterprise Linux) repository if it isn't already installed:
+dnf install epel-release -y
+Install Varnish using the package manager:
+dnf install varnish -y
+Configure Varnish:
+
+By default, Varnish listens on port 6081. You’ll need to configure it to listen on port 80 and have Apache (or your web server) listen on a different port, such as 8080.
+Edit the Varnish configuration file /etc/varnish/default.vcl to set up the backend server (Apache) to port 8080:
+backend default {
+
+    .host = "127.0.0.1";
+
+    .port = "8080";
+
+}
+Modify the Varnish service configuration to change the listening port from 6081 to 80 by editing /usr/lib/systemd/system/varnish.service:
+ExecStart=/usr/sbin/varnishd \
+
+  -a :80 \
+
+  -T localhost:6082 \
+
+  -f /etc/varnish/default.vcl \
+
+  -S /etc/varnish/secret \
+
+  -s malloc,256m
+Configure Apache:
+
+Change Apache to listen on port 8080. Edit the file /etc/httpd/conf/httpd.conf and change:
+Listen 80
+to:
+Listen 8080
+Update the virtual host configuration files if necessary, to ensure they are listening on the correct port.
+Start and Enable Services:
+
+Enable and start Varnish:
+systemctl enable varnish
+
+systemctl start varnish
+Restart Apache to apply the changes:
+systemctl restart httpd
+Configure WHM/cPanel:
+
+WHM/cPanel configurations typically do not interfere directly with the changes you've made. However, to ensure updates do not overwrite your custom configurations, you should:
+Create custom templates for Apache in /var/cpanel/templates/apache2 to retain your port settings.
+Use cpanel's EasyApache to manage updates and custom configurations.
+Create a post-update script that re-applies your custom configurations if necessary.
+
+1. Create Custom Templates for Apache
+Step 1: Copy Default Templates
+First, copy the default templates to the custom template directory.
+
+mkdir -p /var/cpanel/templates/apache2/custom
+cp /var/cpanel/templates/apache2/main.default /var/cpanel/templates/apache2/custom/main.local
+Step 2: Modify the Custom Templates
+Edit the copied template to change the Apache listening port to 8080. This example assumes you are editing a specific part of the template. You may need to adjust depending on your exact template setup.
+
+Open /var/cpanel/templates/apache2/custom/main.local with your preferred text editor and modify the Listen directive:
+
+# Example change in the template file
+<IfModule mpm_prefork_module>
+    Listen 8080
+</IfModule>
+<IfModule mpm_worker_module>
+    Listen 8080
+</IfModule>
+<IfModule mpm_event_module>
+    Listen 8080
+</IfModule>
+
+2. Use EasyApache to Manage Updates and Custom Configurations
+EasyApache is a WHM/cPanel tool for managing Apache, PHP, and other web server configurations. Custom configurations should be placed in the correct directories to ensure they are preserved during updates.
+
+Step 1: Custom Configuration Directory
+Create a directory for custom configurations if it doesn't already exist:
+
+mkdir -p /usr/local/apache/conf/includes
+
+Step 2: Create a Custom Configuration File
+Create a file named post_virtualhost_global.conf for your custom settings:
+
+touch /usr/local/apache/conf/includes/post_virtualhost_global.conf
+Add your custom settings to this file. For example, to ensure Apache listens on port 8080:
+# Example content of /usr/local/apache/conf/includes/post_virtualhost_global.conf
+Listen 8080
+Step 3: Rebuild Apache Configuration
+After making changes to the templates or configuration files, rebuild the Apache configuration and restart the service:
+
+/scripts/rebuildhttpdconf
+
+systemctl restart httpd
+
+3. Create a Post-Update Script
+To ensure your custom configurations are re-applied after updates, create a post-update script.
+
+Step 1: Create the Script
+Create a script named post_easyapache_update.sh in a suitable directory, e.g., /usr/local/bin/:
+
+touch /usr/local/bin/post_easyapache_update.sh
+
+chmod +x /usr/local/bin/post_easyapache_update.sh
+
+Step 2: Add Commands to the Script
+Edit the script to include the necessary commands to reapply your configurations. For example:
+
+#!/bin/bash
+
+# Copy custom templates to the appropriate directory
+cp /var/cpanel/templates/apache2/custom/main.local /var/cpanel/templates/apache2/main.local
+
+# Ensure custom configurations are included
+mkdir -p /usr/local/apache/conf/includes
+echo "Listen 8080" > /usr/local/apache/conf/includes/post_virtualhost_global.conf
+
+# Rebuild Apache configuration
+/scripts/rebuildhttpdconf
+
+# Restart Apache
+systemctl restart httpd
+
+Step 3: Create a Cron Job for the Script
+directly edit the cron jobs using crontab -e:
+# Open crontab editor
+crontab -e
+
+# Add the following line to run the script daily at 2 AM
+0 2 * * * /usr/local/bin/post_easyapache_update.sh
+
+Testing:
+
+Test the configuration to ensure Varnish is correctly serving content.
+curl -I http://yourdomain.com
+
+Ensure headers indicate Varnish is serving the requests (look for X-Varnish and Via headers).
+
+Monitoring and Maintenance:
+
+Regularly monitor Varnish logs and performance:
+varnishlog
+
+varnishstat
+
+Set up alerts for your system to catch any issues early.
