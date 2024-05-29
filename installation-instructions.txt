@@ -1,4 +1,4 @@
-To seamlessly install Varnish cache on WHM/cPanel running on AlmaLinux 8, without risking disruptions during updates, follow these steps:
+To seamlessly install Varnish cache on WHM/cPanel running on RHEL-based Linux (eg. AlmaLinux 8), without risking disruptions during updates, follow these steps:
 
 Perform a complete backup.
 Install Varnish:
