@@ -1,0 +1,171 @@
+updated instructions considering your points about using a recent version of Varnish and the correct port configurations for Varnish and Hitch.
+1. Preparation
+
+    Backups: Ensure you have current backups of your website and server configuration.
+    Check Dependencies: Make sure your system is up to date.
+
+# Run the command below
+dnf update -y
+
+2. Install Varnish
+
+Add the Varnish 7.5 repository and install Varnish.
+# Run the command below
+curl -s https://packagecloud.io/install/repositories/varnishcache/varnish75/script.rpm.sh | bash
+dnf install varnish -y
+
+3. Install Hitch
+
+Install Hitch, a lightweight TLS proxy that works well with Varnish.
+# Run the command below
+dnf install hitch -y
+
+4. Configure Varnish
+
+Configure Varnish to listen on the appropriate ports. Hitch will listen on port 443 and forward requests to Varnish on port 4443.
+Step 1: Edit the Varnish configuration
+
+Edit the Varnish configuration file /etc/varnish/default.vcl to set up the backend server (Apache) to port 8080:
+vcl 4.0;
+
+backend default {
+    .host = "127.0.0.1";
+    .port = "8080";
+}
+
+Step 2: Modify the Varnish service configuration
+
+Edit /usr/lib/systemd/system/varnish.service to set Varnish to listen on port 4443 with the PROXY protocol:
+ExecStart=/usr/sbin/varnishd \
+  -a localhost:4443,PROXY \
+  -T localhost:6082 \
+  -f /etc/varnish/default.vcl \
+  -S /etc/varnish/secret \
+  -s malloc,256m
+
+5. Configure Apache
+
+Change Apache to listen on port 8080.
+
+Edit the file /etc/httpd/conf/httpd.conf and change:
+Listen 80
+
+to:
+Listen 8080
+
+Update the virtual host configurations if necessary to ensure they are listening on the correct port.
+6. Configure Hitch
+
+Configure Hitch to handle TLS and forward requests to Varnish on port 4443.
+Step 1: Edit the Hitch configuration
+
+Edit /etc/hitch/hitch.conf to set up the TLS termination and forwarding to Varnish:
+frontend = "[*]:443"
+backend = "[127.0.0.1]:4443"
+workers = 4
+user = "hitch"
+group = "hitch"
+ciphers = "HIGH"
+ssl-cert = "/etc/ssl/certs/yourcert.pem"
+ssl-key = "/etc/ssl/private/yourkey.pem"
+write-proxy-v2 = on
+
+Make sure to replace /etc/ssl/certs/yourcert.pem and /etc/ssl/private/yourkey.pem with the paths to your SSL certificate and key.
+7. Enable and Start Services
+
+Enable and start the Varnish, Hitch, and Apache services.
+# Run the commands below
+
+systemctl daemon-reload
+systemctl enable varnish
+systemctl start varnish
+
+systemctl enable hitch
+systemctl start hitch
+
+systemctl restart httpd
+
+8. Configure WHM/cPanel
+
+To ensure updates do not overwrite your custom configurations, create custom templates and use EasyApache.
+Step 1: Create custom templates for Apache
+
+Copy the default templates to the custom template directory and modify them to retain your port settings.
+# Run the command below
+mkdir -p /var/cpanel/templates/apache2/custom
+cp /var/cpanel/templates/apache2/main.default /var/cpanel/templates/apache2/custom/main.local
+
+Edit /var/cpanel/templates/apache2/custom/main.local to change the Apache listening port to 8080.
+# Example change in the template file
+<IfModule mpm_prefork_module>
+    Listen 8080
+</IfModule>
+<IfModule mpm_worker_module>
+    Listen 8080
+</IfModule>
+<IfModule mpm_event_module>
+    Listen 8080
+</IfModule>
+
+Step 2: Rebuild Apache configuration
+
+Rebuild the Apache configuration and restart the service:
+/scripts/rebuildhttpdconf
+systemctl restart httpd
+
+9. Monitoring and Maintenance
+
+Set up a lightweight monitoring tool to alert you of any issues with Varnish or Hitch.
+Step 1: Install Monit
+dnf install monit -y
+
+Step 2: Configure Monit for Varnish and Hitch
+
+Create configuration files for Varnish and Hitch in the Monit configuration directory.
+touch /etc/monit.d/varnish
+touch /etc/monit.d/hitch
+
+Add the following content to /etc/monit.d/varnish:
+check process varnish with pidfile /var/run/varnishd.pid
+    start program = "/usr/bin/systemctl start varnish"
+    stop program = "/usr/bin/systemctl stop varnish"
+    if failed host 127.0.0.1 port 4443 protocol http
+        then alert
+    if 5 restarts within 5 cycles then timeout
+    alert youremail@example.com
+
+Add the following content to /etc/monit.d/hitch:
+check process hitch with pidfile /run/hitch/hitch.pid
+    start program = "/usr/bin/systemctl start hitch"
+    stop program = "/usr/bin/systemctl stop hitch"
+    if failed port 443 type tcpssl
+        with timeout 15 seconds
+        then alert
+    if 5 restarts within 5 cycles then timeout
+    alert youremail@example.com
+
+Step 3: Enable and Start Monit
+systemctl enable monit
+systemctl start monit
+
+Step 4: Test the Configuration
+
+You can test the configuration by simulating a failure:
+systemctl stop varnish
+systemctl stop hitch
+
+Check Monit status and ensure it detects the stopped services and attempts to restart them.
+monit status
+
+Ensure you receive email alerts by verifying the email settings in /etc/monitrc.
+# Example email configuration in /etc/monitrc
+set mailserver smtp.example.com port 587
+    username "your-email@example.com" password "your-email-password"
+    using tlsv1 with timeout 30 seconds
+
+set alert youremail@example.com
+
+Replace smtp.example.com, your-email@example.com, and your-email-password with your actual SMTP server details and credentials. Reload Monit configuration:
+# Run the command below
+monit reload
+
