@@ -1,0 +1,114 @@
+1. Preparation
+
+    Backups: Ensure you have current backups of your website and server configuration.
+    Check Dependencies: Make sure your system is up to date.
+# Run the command below.
+dnf update -y
+
+2. Install Varnish
+
+Add the Varnish 7.5 repository and install Varnish.
+# Run the command below.
+curl -s https://packagecloud.io/install/repositories/varnishcache/varnish75/script.rpm.sh | bash
+dnf install varnish -y
+
+3. Install Hitch
+
+Install Hitch, a lightweight TLS proxy that works well with Varnish.
+# Run the command below.
+dnf install hitch -y
+
+4. Configure Varnish
+
+Configure Varnish to listen on port 80 instead of the default 6081.
+Step 1: Edit the Varnish service configuration
+
+Copy the Varnish service file to /etc/systemd/system and modify it:
+# Run the command below.
+cp /usr/lib/systemd/system/varnish.service /etc/systemd/system/
+
+Edit /etc/systemd/system/varnish.service and change the listening port from 6081 to 80:
+ExecStart=/usr/sbin/varnishd \
+  -a :80 \
+  -a localhost:4443,PROXY \
+  -T localhost:6082 \
+  -f /etc/varnish/default.vcl \
+  -S /etc/varnish/secret \
+  -s malloc,256m
+
+5. Configure Apache
+
+Change Apache to listen on port 8080.
+
+Edit the file /etc/httpd/conf/httpd.conf and change:
+Listen 80
+
+to:
+
+Listen 8080
+
+Update the virtual host configurations if necessary to ensure they are listening on the correct port.
+6. Configure Hitch
+
+Configure Hitch to handle TLS and forward requests to Varnish on port 4443.
+Step 1: Edit the Hitch configuration
+
+Edit /etc/hitch/hitch.conf to set up the TLS termination and forwarding to Varnish. Add the ssl-cert and ssl-key fields:
+frontend = "[*]:443"
+backend = "[127.0.0.1]:4443"
+workers = 4
+user = "hitch"
+group = "hitch"
+ciphers = "HIGH"
+ssl-cert = "/etc/ssl/certs/yourcert.crt"
+ssl-key = "/etc/ssl/private/yourkey.key"
+write-proxy-v2 = on
+
+Make sure to replace /etc/ssl/certs/yourcert.crt and /etc/ssl/private/yourkey.key with the paths to your SSL certificate and key.
+7. Enable and Start Services
+
+Enable and start the Varnish, Hitch, and varnishncsa services. The varnishncsa service ensures that Varnish logs are written to disk in /var/log/varnish and are managed by logrotate.
+# Run the command below.
+systemctl enable varnish hitch varnishncsa
+systemctl start varnish hitch varnishncsa
+
+
+Alternatively, you can enable and start all three services in one command:
+# Run the command below.
+systemctl enable --now varnish hitch varnishncsa
+
+8. Configure WHM/cPanel
+
+To ensure updates do not overwrite your custom configurations, create custom templates and use EasyApache.
+Step 1: Create custom templates for Apache
+
+Copy the default templates to the custom template directory and modify them to retain your port settings.
+# Run the command below.
+mkdir -p /var/cpanel/templates/apache2/custom
+cp /var/cpanel/templates/apache2/main.default /var/cpanel/templates/apache2/custom/main.local
+
+Edit /var/cpanel/templates/apache2/custom/main.local to change the Apache listening port to 8080.
+# Example change in the template file
+<IfModule mpm_prefork_module>
+    Listen 8080
+</IfModule>
+<IfModule mpm_worker_module>
+    Listen 8080
+</IfModule>
+<IfModule mpm_event_module>
+    Listen 8080
+</IfModule>
+
+Step 2: Rebuild Apache configuration
+
+Rebuild the Apache configuration and restart the service:
+# Run the command below.
+/scripts/rebuildhttpdconf
+systemctl restart httpd
+
+9. Enable Varnish Logging
+
+Enable and start the varnishncsa service to ensure Varnish logs are written to disk.
+# Run the command below.
+systemctl enable varnishncsa
+systemctl start varnishncsa
